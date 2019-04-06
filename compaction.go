@@ -99,7 +99,8 @@ func (c *compaction) setupOtherInputs() {
 // invariant that the versions of keys at level+1 are older than the versions
 // of keys at level. This is achieved by adding tables to the right of the
 // current input tables such that the rightmost table has a "clean cut". A
-// clean cut is either a change in user keys, or
+// clean cut is either a change in user keys at adjacent files' endpoints, or a
+// range tombstone sentinel end key at a file endpoint.
 func (c *compaction) expandInputs(inputs []fileMetadata) []fileMetadata {
 	if c.level == 0 {
 		// We already call version.overlaps for L0 and that call guarantees that we
@@ -136,6 +137,62 @@ func (c *compaction) expandInputs(inputs []fileMetadata) []fileMetadata {
 		// in the compaction.
 	}
 	return files[start:end]
+}
+
+type atomicCompactionUnitBoundaries struct {
+	smallestUserKey []byte
+	largestUserKey  []byte
+}
+
+func (c *compaction) getAtomicCompactionUnitBoundariesForFile(
+	input *fileMetadata, levelIdx int,
+) atomicCompactionUnitBoundaries {
+	level := c.level + levelIdx // We always compact level to level+1.
+	if level == 0 {
+		return atomicCompactionUnitBoundaries{
+			smallestUserKey: input.smallest.UserKey,
+			largestUserKey:  input.largest.UserKey,
+		}
+	}
+	files := c.version.files[level]
+
+	// Pointer arithmetic to figure out the index of input. This is true for
+	// non-L0 files returned from version.overlaps.
+	if uintptr(unsafe.Pointer(input)) < uintptr(unsafe.Pointer(&files[0])) {
+		panic("pebble: invalid input file")
+	}
+	inputIdx := int((uintptr(unsafe.Pointer(input)) -
+		uintptr(unsafe.Pointer(&files[0]))) / unsafe.Sizeof(*input))
+	if inputIdx >= len(files) {
+		panic("pebble: invalid input file")
+	}
+	smallest := inputIdx
+	for ; smallest > 0; smallest-- {
+		cur := files[smallest]
+		prev := files[smallest-1]
+		if c.cmp(prev.largest.UserKey, cur.smallest.UserKey) < 0 {
+			break
+		}
+		if prev.largest.Trailer == db.InternalKeyRangeDeleteSentinel {
+			break
+		}
+	}
+	largest := inputIdx
+	for ; largest < len(files)-1; largest++ {
+		cur := files[largest]
+		next := files[largest+1]
+		if c.cmp(cur.largest.UserKey, next.smallest.UserKey) < 0 {
+			break
+		}
+		if cur.largest.Trailer == db.InternalKeyRangeDeleteSentinel {
+			break
+		}
+	}
+
+	return atomicCompactionUnitBoundaries{
+		smallestUserKey: files[smallest].smallest.UserKey,
+		largestUserKey:  files[largest].largest.UserKey,
+	}
 }
 
 // grow grows the number of inputs at c.level without changing the number of
@@ -232,6 +289,23 @@ func (c *compaction) elideRangeTombstone(start, end []byte) bool {
 	return true
 }
 
+func (c *compaction) getAtomicCompactionUnitBoundariesForLevel(
+	levelIdx int,
+) []atomicCompactionUnitBoundaries {
+	res := make([]atomicCompactionUnitBoundaries, len(c.inputs[levelIdx]))
+	var currBounds *atomicCompactionUnitBoundaries
+	for fileIdx, file := range c.inputs[levelIdx] {
+		if currBounds == nil || c.cmp(currBounds.largestUserKey, file.smallest.UserKey) <= 0 {
+			// We've advanced into the next atomic compaction unit.
+			tmpBounds := c.getAtomicCompactionUnitBoundariesForFile(
+				&c.inputs[levelIdx][fileIdx], levelIdx)
+			currBounds = &tmpBounds
+		}
+		res = append(res, *currBounds)
+	}
+	return res
+}
+
 // newInputIter returns an iterator over all the input tables in a compaction.
 func (c *compaction) newInputIter(
 	newIters tableNewIters,
@@ -254,8 +328,10 @@ func (c *compaction) newInputIter(
 	// levelIters per level, one which iterates over the point operations, and
 	// one which iterates over the range deletions. These two iterators are
 	// combined with a mergingIter.
-	newRangeDelIter := func(f *fileMetadata) (internalIterator, internalIterator, error) {
-		iter, rangeDelIter, err := newIters(f)
+	newRangeDelIter := func(f *fileMetadata, compactionBounds *atomicCompactionUnitBoundaries) (
+		internalIterator, internalIterator, error,
+	) {
+		iter, rangeDelIter, err := newIters(f, compactionBounds)
 		if err == nil {
 			// TODO(peter): It is mildly wasteful to open the point iterator only to
 			// immediately close it. One way to solve this would be to add new
@@ -273,12 +349,15 @@ func (c *compaction) newInputIter(
 	// TODO(peter,rangedel): test that range tombstones are properly included in
 	// the output sstable.
 	if c.level != 0 {
-		iters = append(iters, newLevelIter(nil, c.cmp, newIters, c.inputs[0]))
-		iters = append(iters, newLevelIter(nil, c.cmp, newRangeDelIter, c.inputs[0]))
+		compactionBounds := c.getAtomicCompactionUnitBoundariesForLevel(0 /* levelIdx */)
+		iters = append(iters, newLevelIter(nil, c.cmp, newIters, c.inputs[0], nil))
+		iters = append(iters, newLevelIter(
+			nil, c.cmp, newRangeDelIter, c.inputs[0], compactionBounds))
 	} else {
 		for i := range c.inputs[0] {
 			f := &c.inputs[0][i]
-			iter, rangeDelIter, err := newIters(f)
+			compactionBounds := c.getAtomicCompactionUnitBoundariesForFile(f, 0 /* levelIdx */)
+			iter, rangeDelIter, err := newIters(f, &compactionBounds)
 			if err != nil {
 				return nil, fmt.Errorf("pebble: could not open table %d: %v", f.fileNum, err)
 			}
@@ -289,8 +368,10 @@ func (c *compaction) newInputIter(
 		}
 	}
 
-	iters = append(iters, newLevelIter(nil, c.cmp, newIters, c.inputs[1]))
-	iters = append(iters, newLevelIter(nil, c.cmp, newRangeDelIter, c.inputs[1]))
+	compactionBounds := c.getAtomicCompactionUnitBoundariesForLevel(1 /* levelIdx */)
+	iters = append(iters, newLevelIter(nil, c.cmp, newIters, c.inputs[1], nil))
+	iters = append(iters, newLevelIter(
+		nil, c.cmp, newRangeDelIter, c.inputs[1], compactionBounds))
 	return newMergingIter(c.cmp, iters...), nil
 }
 

@@ -439,7 +439,7 @@ func (d *DB) newIterInternal(
 	// The level 0 files need to be added from newest to oldest.
 	for i := len(current.files[0]) - 1; i >= 0; i-- {
 		f := &current.files[0][i]
-		iter, rangeDelIter, err := d.newIters(f)
+		iter, rangeDelIter, err := d.newIters(f, nil /* compactionBounds */)
 		if err != nil {
 			dbi.err = err
 			return dbi
@@ -477,7 +477,7 @@ func (d *DB) newIterInternal(
 			li = &levelIter{}
 		}
 
-		li.init(o, d.cmp, d.newIters, current.files[level])
+		li.init(o, d.cmp, d.newIters, current.files[level], nil /* compactionBounds */)
 		li.initRangeDel(&rangeDelIters[0])
 		li.initLargestUserKey(&largestUserKeys[0])
 		iters = append(iters, li)

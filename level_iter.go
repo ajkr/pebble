@@ -12,7 +12,9 @@ import (
 
 // tableNewIters creates a new point and range-del iterator for the given file
 // number.
-type tableNewIters func(meta *fileMetadata) (internalIterator, internalIterator, error)
+type tableNewIters func(
+	meta *fileMetadata, compactionBounds *atomicCompactionUnitBoundaries,
+) (internalIterator, internalIterator, error)
 
 // levelIter provides a merged view of the sstables in a level.
 //
@@ -52,6 +54,9 @@ type levelIter struct {
 	// - `boundary` can hold either the lower- or upper-bound, depending on the iterator direction.
 	// - `boundary` is not exposed to the next higher-level iterator, i.e., `mergingIter`.
 	largestUserKey *[]byte
+	// `compactionBounds[i]` contains the smallest/largest user key for the atomic compaction unit
+	// containing `files[i]`.
+	compactionBounds []atomicCompactionUnitBoundaries
 }
 
 // levelIter implements the internalIterator interface.
@@ -59,20 +64,23 @@ var _ internalIterator = (*levelIter)(nil)
 
 func newLevelIter(
 	opts *db.IterOptions, cmp db.Compare, newIters tableNewIters, files []fileMetadata,
+	compactionBounds []atomicCompactionUnitBoundaries,
 ) *levelIter {
 	l := &levelIter{}
-	l.init(opts, cmp, newIters, files)
+	l.init(opts, cmp, newIters, files, compactionBounds)
 	return l
 }
 
 func (l *levelIter) init(
 	opts *db.IterOptions, cmp db.Compare, newIters tableNewIters, files []fileMetadata,
+	compactionBounds []atomicCompactionUnitBoundaries,
 ) {
 	l.opts = opts
 	l.cmp = cmp
 	l.index = -1
 	l.newIters = newIters
 	l.files = files
+	l.compactionBounds = compactionBounds
 }
 
 func (l *levelIter) initRangeDel(rangeDelIter *internalIterator) {
@@ -153,7 +161,13 @@ func (l *levelIter) loadFile(index, dir int) bool {
 		}
 
 		var rangeDelIter internalIterator
-		l.iter, rangeDelIter, l.err = l.newIters(f)
+		var compactionBounds *atomicCompactionUnitBoundaries
+		if l.compactionBounds != nil {
+			compactionBounds = &l.compactionBounds[l.index]
+		} else {
+			compactionBounds = nil
+		}
+		l.iter, rangeDelIter, l.err = l.newIters(f, compactionBounds)
 		if l.err != nil || l.iter == nil {
 			return false
 		}
