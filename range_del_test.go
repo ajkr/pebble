@@ -102,6 +102,27 @@ func TestRangeDel(t *testing.T) {
 			defer iter.Close()
 			return runIterCmd(td, iter)
 
+		case "set":
+			count := 0
+			for _, arg := range td.CmdArgs {
+				if len(arg.Vals) != 1 {
+					return fmt.Sprintf("%s: %s=<value>", td.Cmd, arg.Key)
+				}
+				d.Set([]byte(arg.Key), []byte(arg.Vals[0]), nil)
+				count++
+			}
+			return ""
+
+		case "flush":
+			if err := d.Flush(); err != nil {
+				return err.Error()
+			}
+
+			d.mu.Lock()
+			s := d.mu.versions.currentVersion().String()
+			d.mu.Unlock()
+			return s
+
 		default:
 			return fmt.Sprintf("unknown command: %s", td.Cmd)
 		}

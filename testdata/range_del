@@ -1224,14 +1224,28 @@ compact d-e
 1: a-c
 3: c-d d-e
 
+set d=v
+----
+
+flush
+----
+0: d-d
+1: a-c
+3: c-d d-e
+
+compact d-d L0
+----
+1: a-c d-d
+3: c-d d-e
+
 get seq=4
 c
 ----
 v
 
-compact a-b L1
+compact a-d L1
 ----
-2: a-c
+2: a-d d-d
 3: c-d d-e
 
 get seq=4
