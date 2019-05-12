@@ -81,7 +81,7 @@ func runYcsb(cmd *cobra.Command, args []string) error {
 	seq.seed = ycsbConfig.seed
 	reg = newHistogramRegistry()
 	runTest(args[0], test{
-		init: func(db *pebble.DB, wg *sync.WaitGroup) {
+		init: func(db *pebble.DB, wg *sync.WaitGroup, timeout *uint64) {
 			wg.Add(concurrency)
 			for i := 0; i < concurrency; i++ {
 				// per-worker goroutine state
@@ -98,6 +98,9 @@ func runYcsb(cmd *cobra.Command, args []string) error {
 					defer wg.Done()
 					var raw, buf []byte
 					for {
+						if atomic.LoadUint64(timeout) == 1 {
+							break
+						}
 						if gen.rand().Intn(100) < ycsbConfig.readPercent {
 							num := gen.readKey()
 							raw = encodeUint64Ascending(raw[:0], uint64(num))

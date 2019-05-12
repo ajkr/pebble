@@ -12,6 +12,7 @@ import (
 	"runtime/pprof"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -174,7 +175,7 @@ func (w *histogramRegistry) Tick(fn func(histogramTick)) {
 }
 
 type test struct {
-	init func(db *pebble.DB, wg *sync.WaitGroup)
+	init func(db *pebble.DB, wg *sync.WaitGroup, timeout *uint64)
 	tick func(elapsed time.Duration, i int)
 	done func(elapsed time.Duration)
 }
@@ -220,7 +221,8 @@ func runTest(dir string, t test) {
 	}
 
 	var wg sync.WaitGroup
-	t.init(db, &wg)
+	var timeout uint64
+	t.init(db, &wg, &timeout)
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -238,6 +240,7 @@ func runTest(dir string, t test) {
 		go func() {
 			time.Sleep(duration)
 			done <- syscall.Signal(0)
+			atomic.StoreUint64(&timeout, 1)
 		}()
 	}
 

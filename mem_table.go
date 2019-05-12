@@ -164,7 +164,8 @@ func (m *memTable) apply(batch *Batch, seqNum uint64) error {
 		}
 	}
 	if seqNum != startSeqNum+uint64(batch.count()) {
-		panic("pebble: inconsistent batch count")
+		return nil
+		//panic("pebble: inconsistent batch count")
 	}
 	if tombstoneCount != 0 {
 		m.tombstones.invalidate(tombstoneCount)
