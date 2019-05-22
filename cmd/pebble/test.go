@@ -174,7 +174,7 @@ func (w *histogramRegistry) Tick(fn func(histogramTick)) {
 }
 
 type test struct {
-	init func(db *pebble.DB, wg *sync.WaitGroup)
+	init func(db DB, wg *sync.WaitGroup)
 	tick func(elapsed time.Duration, i int)
 	done func(elapsed time.Duration)
 }
@@ -214,10 +214,11 @@ func runTest(dir string, t test) {
 		opts.EventListener.WALDeleted = nil
 	}
 
-	db, err := pebble.Open(dir, opts)
+	p, err := pebble.Open(dir, opts)
 	if err != nil {
 		log.Fatal(err)
 	}
+	db := PebbleDB{p}
 
 	var wg sync.WaitGroup
 	t.init(db, &wg)

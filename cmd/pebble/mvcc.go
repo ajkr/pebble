@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 
-	"github.com/petermattis/pebble"
 	"github.com/petermattis/pebble/db"
 	"github.com/petermattis/pebble/internal/bytealloc"
 )
@@ -91,7 +90,7 @@ func mvccEncode(dst, key []byte, walltime uint64, logical uint32) []byte {
 	return dst
 }
 
-func mvccForwardScan(d *pebble.DB, start, end, ts []byte) int {
+func mvccForwardScan(d DB, start, end, ts []byte) int {
 	it := d.NewIter(&db.IterOptions{
 		LowerBound: mvccEncode(nil, start, 0, 0),
 		UpperBound: mvccEncode(nil, end, 0, 0),
@@ -112,7 +111,7 @@ func mvccForwardScan(d *pebble.DB, start, end, ts []byte) int {
 	return count
 }
 
-func mvccReverseScan(d *pebble.DB, start, end, ts []byte) int {
+func mvccReverseScan(d DB, start, end, ts []byte) int {
 	it := d.NewIter(&db.IterOptions{
 		LowerBound: mvccEncode(nil, start, 0, 0),
 		UpperBound: mvccEncode(nil, end, 0, 0),

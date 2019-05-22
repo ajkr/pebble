@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/petermattis/pebble"
 	pebble_db "github.com/petermattis/pebble/db"
 	"github.com/spf13/cobra"
 )
@@ -81,7 +80,7 @@ func runYcsb(cmd *cobra.Command, args []string) error {
 	seq.seed = ycsbConfig.seed
 	reg = newHistogramRegistry()
 	runTest(args[0], test{
-		init: func(db *pebble.DB, wg *sync.WaitGroup) {
+		init: func(db DB, wg *sync.WaitGroup) {
 			wg.Add(concurrency)
 			for i := 0; i < concurrency; i++ {
 				// per-worker goroutine state
