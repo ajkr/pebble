@@ -1,6 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage/engine"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
@@ -187,6 +191,63 @@ func (r RocksDB) NewBatch() Batch {
 }
 
 func (r RocksDB) Metrics() *pebble.VersionMetrics {
-	// TODO get properties from rocksdb
-	return nil
+	stats := r.d.GetCompactionStats()
+	fmt.Printf(stats)
+	var inLevelsSection bool
+	var vMetrics pebble.VersionMetrics
+	for _, line := range strings.Split(stats, "\n") {
+		if !inLevelsSection && strings.HasPrefix(line, "-----") {
+			inLevelsSection = true
+			continue
+		}
+		if strings.HasPrefix(line, "Flush(GB):") {
+			// line looks like:
+			// "Flush(GB): cumulative 0.302, interval 0.302"
+			// pretend cumulative flush is WAL size and L0 input since we don't have
+			// access to WAL stats in rocks.
+			// TODO: this is slightly different than Pebble which uses the real physical
+			// WAL size. This way prevents compression ratio from affecting write-amp,
+			// but it also prevents apples-to-apples w-amp comparison.
+			fields := strings.Fields(line)
+			field := fields[2]
+			walWrittenGB, _ := strconv.ParseFloat(field[0:len(field)-1], 64)
+			vMetrics.Levels[0].BytesIn = uint64(1024.0 * 1024.0 * 1024.0 * walWrittenGB)
+			vMetrics.WAL.BytesWritten = vMetrics.Levels[0].BytesIn
+		}
+		if inLevelsSection && strings.HasPrefix(line, " Sum") {
+			inLevelsSection = false
+			continue
+		}
+		if inLevelsSection {
+			fields := strings.Fields(line)
+			level, _ := strconv.Atoi(fields[0][1:])
+			if level < 0 || level > 6 {
+				panic("expected at most 7 levels")
+			}
+			vMetrics.Levels[level].NumFiles, _ = strconv.ParseUint(strings.Split(fields[1], "/")[0], 10, 64)
+			size, _ := strconv.ParseFloat(fields[2], 64)
+			if fields[3] == "KB" {
+				size *= 1024.0
+			} else if fields[3] == "MB" {
+				size *= 1024.0 * 1024.0
+			} else if fields[3] == "GB" {
+				size *= 1024.0 * 1024.0 * 1024.0
+			} else {
+				panic("unknown unit")
+			}
+			vMetrics.Levels[level].Size = uint64(size)
+			vMetrics.Levels[level].Score, _ = strconv.ParseFloat(fields[4], 64)
+			if level > 0 {
+				bytesInGB, _ := strconv.ParseFloat(fields[6], 64)
+				vMetrics.Levels[level].BytesIn = uint64(1024.0 * 1024.0 * 1024.0 * bytesInGB)
+			}
+			bytesMovedGB, _ := strconv.ParseFloat(fields[10], 64)
+			vMetrics.Levels[level].BytesMoved = uint64(1024.0 * 1024.0 * 1024.0 * bytesMovedGB)
+			bytesReadGB, _ := strconv.ParseFloat(fields[5], 64)
+			vMetrics.Levels[level].BytesRead = uint64(1024.0 * 1024.0 * 1024.0 * bytesReadGB)
+			bytesWrittenGB, _ := strconv.ParseFloat(fields[8], 64)
+			vMetrics.Levels[level].BytesWritten = uint64(1024.0 * 1024.0 * 1024.0 * bytesWrittenGB)
+		}
+	}
+	return &vMetrics
 }

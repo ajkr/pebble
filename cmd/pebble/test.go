@@ -266,7 +266,7 @@ func runTest(dir string, t test) {
 		// only as an output level, so ignore it for the purposes of determining if
 		// background compactions are still needed.
 		for i := range m.Levels[:len(m.Levels)-1] {
-			if m.Levels[i].Score >= 1 {
+			if m.Levels[i].Score > 1 {
 				return true
 			}
 		}
