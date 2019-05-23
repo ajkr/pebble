@@ -14,6 +14,7 @@ function create_cluster() {
 	"$ROACHPROD_BIN" create "$cluster" \
 		-n "$num_insts" \
 		--aws-machine-type-ssd "$EC2_TYPE" \
+		--clouds aws \
 		--local-ssd-no-ext4-barrier \
 		--username andrewk
 	echo "Created cluster: $cluster"
