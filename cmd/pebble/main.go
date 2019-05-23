@@ -17,6 +17,7 @@ var (
 	concurrency     int
 	disableWAL      bool
 	duration        time.Duration
+	useRocksdb      bool
 	verbose         bool
 	walOnly         bool
 	waitCompactions bool
@@ -46,6 +47,9 @@ func main() {
 			&disableWAL, "disable-wal", false, "disable the WAL (voiding persistence guarantees)")
 		cmd.Flags().DurationVarP(
 			&duration, "duration", "d", 10*time.Second, "the duration to run (0, run forever)")
+		cmd.Flags().BoolVar(
+			&useRocksdb, "use-rocksdb", false,
+			"use rocksdb storage engine instead of pebble")
 		cmd.Flags().BoolVarP(
 			&verbose, "verbose", "v", false, "enable verbose event logging")
 		cmd.Flags().BoolVar(

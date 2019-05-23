@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cockroachdb/cockroach/pkg/storage/engine"
 	"github.com/codahale/hdrhistogram"
 	"github.com/petermattis/pebble"
 	"github.com/petermattis/pebble/cache"
@@ -214,11 +215,26 @@ func runTest(dir string, t test) {
 		opts.EventListener.WALDeleted = nil
 	}
 
-	p, err := pebble.Open(dir, opts)
-	if err != nil {
-		log.Fatal(err)
+	var db DB
+	if useRocksdb {
+		// TODO: match Pebble / Rocks options
+		r, err := engine.NewRocksDB(
+			engine.RocksDBConfig{
+				Dir: dir,
+			},
+			engine.RocksDBCache{},
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		db = RocksDB{r}
+	} else {
+		p, err := pebble.Open(dir, opts)
+		if err != nil {
+			log.Fatal(err)
+		}
+		db = PebbleDB{p}
 	}
-	db := PebbleDB{p}
 
 	var wg sync.WaitGroup
 	t.init(db, &wg)
