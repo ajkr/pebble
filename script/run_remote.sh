@@ -41,6 +41,7 @@ function run_workers() {
 				--read-pct "$READ_PCT" \
 				--db-dir "$DB_DIR" \
 				--binary "~/$bin_name" \
+				--engine "$ENGINE" \
 				>"$out_name" 2>"$err_name" &
 		done
 	done
@@ -50,7 +51,7 @@ function run_workers() {
 }
 
 set -- `getopt -un "$0" \
-	-o 'c:o:n:b:r:d:h' \
+	-o 'c:o:n:b:r:d:e:h' \
 	--long ec2-type: \
 	--long cluster: \
 	--long num-trials: \
@@ -62,6 +63,7 @@ set -- `getopt -un "$0" \
 	--long read-pct: \
 	--long db-dir: \
 	--long roachprod: \
+	--long engine: \
 	-- "$@"`
 
 while [ $# -gt 0 ]; do
@@ -78,6 +80,7 @@ while [ $# -gt 0 ]; do
 		--read-pct|-r) READ_PCT="$2"; shift;;
 		--db-dir|-d) DB_DIR="$2"; shift;;
 		--roachprod) ROACHPROD_BIN="$2"; shift;;
+		--engine|-e) ENGINE="$2"; shift;;
 		--) shift; BINARIES=("$@"); break;;
 		-*) echo "invalid arg: $1"; exit 1;;
 		*) echo "extra arg: $1"; exit 1;;

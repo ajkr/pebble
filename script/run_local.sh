@@ -3,7 +3,7 @@
 function create_db_dir() {
 	local db_dir="$(mktemp -d)"
 	echo "Created DB directory: $db_dir"
-	$1="$db_dir"
+	eval $1="$db_dir"
 }
 
 function run_kv() {
@@ -17,11 +17,18 @@ function run_kv() {
 		echo "unsupported binary: $bin_name"
 		exit 1
 	fi
+	if [[ $ENGINE = rocksdb ]]; then
+		special_args+=(--use-rocksdb)
+	elif [[ -n $ENGINE && $ENGINE != pebble ]]; then
+		echo "unsupported engine: $ENGINE"
+		exit 1
+	fi
 	/usr/bin/time "${BINARY}" "${special_args[@]}" \
 		--duration 0 \
 		--concurrency "$CONCURRENCY" \
 		--min-block-bytes "$BLOCK_BYTES" --max-block-bytes "$BLOCK_BYTES" \
-		--read-percent "$READ_PCT"
+		--read-percent "$READ_PCT" \
+		--wait-compactions
 }
 
 set -- `getopt -un "$0" \
@@ -33,6 +40,7 @@ set -- `getopt -un "$0" \
 	--long read-pct: \
 	--long db-dir: \
 	--long binary: \
+	--long engine: \
 	-- "$@"`
 
 while [ $# -gt 0 ]; do
@@ -45,6 +53,7 @@ while [ $# -gt 0 ]; do
 		--read-pct|-r) READ_PCT="$2"; shift;;
 		--db-dir|-d) DB_DIR="$2"; shift;;
 		--binary) BINARY="$2"; shift;;
+		--engine) ENGINE="$2"; shift;;
 		--) break;;
 		-*) echo "invalid arg: $1"; exit 1;;
 		*) echo "extra arg: $1"; exit 1;;
