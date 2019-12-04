@@ -122,10 +122,17 @@ func newCompaction(
 	if outputLevel >= numLevels-1 {
 		outputLevel = numLevels - 1
 	}
-	// Output level is in the range [baseLevel,numLevels]. For the purpose of
+	// Output level is in the range [baseLevel,numLevels-1]. For the purpose of
 	// determining the target output file size, overlap bytes, and expanded
-	// bytes, we want to adjust the range to [1,numLevels].
+	// bytes, we want to adjust the range to [1,numLevels-baseLevel].
 	adjustedOutputLevel := 1 + outputLevel - baseLevel
+
+	var maxOutputFileSize uint64
+	if outputLevel < numLevels-1 {
+		maxOutputFileSize = math.MaxUint64
+	} else {
+		maxOutputFileSize = uint64(opts.Level(adjustedOutputLevel).TargetFileSize)
+	}
 
 	return &compaction{
 		cmp:                 opts.Comparer.Compare,
@@ -134,7 +141,7 @@ func newCompaction(
 		version:             cur,
 		startLevel:          startLevel,
 		outputLevel:         outputLevel,
-		maxOutputFileSize:   uint64(opts.Level(adjustedOutputLevel).TargetFileSize),
+		maxOutputFileSize:   maxOutputFileSize,
 		maxOverlapBytes:     maxGrandparentOverlapBytes(opts, adjustedOutputLevel),
 		maxExpandedBytes:    expandedCompactionByteSizeLimit(opts, adjustedOutputLevel),
 		atomicBytesIterated: bytesCompacted,

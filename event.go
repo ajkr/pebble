@@ -66,7 +66,7 @@ func (i CompactionInfo) String() string {
 	}
 
 	if !i.Done {
-		return fmt.Sprintf("[JOB %d] compacting L%d [%s] (%s) + L%d [%s] (%s)",
+		res := fmt.Sprintf("[JOB %d] compacting L%d [%s] (%s) + L%d [%s] (%s)",
 			i.JobID,
 			i.Input.Level,
 			formatFileNums(i.Input.Tables[0]),
@@ -74,6 +74,35 @@ func (i CompactionInfo) String() string {
 			i.Output.Level,
 			formatFileNums(i.Input.Tables[1]),
 			humanize.Uint64(tablesTotalSize(i.Input.Tables[1])))
+		if len(i.Input.Tables) > 0 {
+			n := len(i.Input.Tables[0])
+			if n > 0 {
+				res += fmt.Sprintf("\n  input range: %s-%s",
+					i.Input.Tables[0][0].Smallest.UserKey,
+					i.Input.Tables[0][len(i.Input.Tables[0])-1].Largest.UserKey)
+			}
+			for _, t := range i.Input.Tables[0] {
+				res += fmt.Sprintf("\n    sst %d: %s-%s",
+					t.FileNum,
+					t.Smallest.UserKey,
+					t.Largest.UserKey)
+			}
+		}
+		if len(i.Input.Tables) > 1 {
+			n := len(i.Input.Tables[1])
+			if n > 0 {
+				res += fmt.Sprintf("\n  output range: %s-%s",
+					i.Input.Tables[1][0].Smallest.UserKey,
+					i.Input.Tables[1][len(i.Input.Tables[1])-1].Largest.UserKey)
+			}
+			for _, t := range i.Input.Tables[1] {
+				res += fmt.Sprintf("\n    sst %d: %s-%s",
+					t.FileNum,
+					t.Smallest.UserKey,
+					t.Largest.UserKey)
+			}
+		}
+		return res
 	}
 
 	return fmt.Sprintf("[JOB %d] compacted L%d [%s] (%s) + L%d [%s] (%s) -> L%d [%s] (%s)",
