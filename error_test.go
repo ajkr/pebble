@@ -251,3 +251,80 @@ func TestErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestRequireReadError injects FS errors into read operations at successively later
+// points until all operations can complete. It requires an operation fails any time
+// an error was injected. This differs from the TestErrors case above as that one
+// cannot require operations fail since it involves flush/compaction, which retry
+// internally and succeed following an injected error.
+func TestRequireReadError(t *testing.T) {
+	run := func(index int32) (err error) {
+		// Perform setup using non-error FS as it involves writes/background ops.
+		wrappedFS := vfs.NewMem()
+		d, err := Open("", &Options{
+			FS:     wrappedFS,
+			Logger: panicLogger{},
+		})
+		if err != nil {
+			t.Errorf("%v", err)
+		}
+
+		key := []byte("a")
+		value := []byte("b")
+		if err := d.Set(key, value, nil); err != nil {
+			t.Errorf("%v", err)
+		}
+		if err := d.Flush(); err != nil {
+			t.Errorf("%v", err)
+		}
+		if err := d.Close(); err != nil {
+			t.Errorf("%v", err)
+		}
+
+		// Now perform foreground ops using error injection FS.
+		defer func() {
+			if r := recover(); r != nil {
+				if e, ok := r.(error); ok {
+					err = e
+				} else {
+					err = fmt.Errorf("%v", r)
+				}
+			}
+		}()
+		fs := &errorFS{
+			FS:    wrappedFS,
+			index: index,
+		}
+		d, err = Open("", &Options{
+			FS:     fs,
+			Logger: panicLogger{},
+		})
+		if err != nil {
+			return err
+		}
+		iter := d.NewIter(nil)
+		for valid := iter.First(); valid; valid = iter.Next() {
+		}
+		if err := iter.Close(); err != nil {
+			return err
+		}
+		if err := d.Close(); err != nil {
+			return err
+		}
+		// Reaching here implies all read operations succeeded. This
+		// should only happen when we reached a large enough index at
+		// which `errorFS` did not return any error.
+		if fs.index < 0 {
+			t.Errorf("FS error injected %d ops ago went unreported", -fs.index)
+		}
+		return nil
+	}
+
+	for i := int32(0); ; i++ {
+		err := run(i)
+		if err == nil {
+			t.Logf("no failures reported at index %d", i)
+			break
+		}
+	}
+}
